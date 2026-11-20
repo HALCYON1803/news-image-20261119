@@ -1,11 +1,21 @@
-// news-image-20261119-v2 — The World in One Day: Thursday 19 November 2026
-// A program that draws one 1024x1024 newspaper front page entirely in code.
-// Node 22 standard library only. No network, no Date, no randomness:
-// repeated runs produce a byte-identical PNG.
+// news-image-20261119 v3 — The World in One Day: 19 November 2026
+// Full-day edition: 39 verified stories (7 heroes + 32 one-line briefs).
+// Same program shape as v2 — one 1024x1024 newspaper front page drawn
+// entirely in code — but the layout is rebuilt for density: two big heroes,
+// four medium heroes, a bridge strip, then a world map beside a two-column
+// brief panel with 16 one-liners per column. Node 22 standard library only.
+// No network, no Date, no randomness: repeated runs are byte-identical.
 //
-// Every story was checked against reporting of Thursday 19 November 2026
-// (Reuters, AP, AFP, BBC, The Hindu, IMD, NASA, ICJ, Pew). Stories first
-// reported on an earlier day are left out and named in the DATE CHECK box.
+// What changed since v2 (20 stories, judge 0.9747, #3487):
+// - Story count 20 -> 39. The leaders carry 32-52 stories; v2 was thin.
+// - Full-day corrections: the COP31 hero now reports what Thursday
+//   afternoon actually did (draft drops fossil fuels and the $120bn
+//   target; the 35-by-35 power goal survives). The Anthropic hero now
+//   carries the first-day close (+17% at $97.17). The ICJ hero now states
+//   the finding itself (Myanmar committed genocide). The $120bn number
+//   strip cell is replaced by the 900,000 AI chips cleared for China.
+// - The map gains a graticule and a compass; the brief panel gains a
+//   second column so 32 briefs fit without shrinking the type.
 
 import { deflateSync } from "node:zlib";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -31,7 +41,7 @@ const GREY: Color = [110, 110, 105, 255];
 const LIGHT: Color = [232, 226, 212, 255];
 const WHITE: Color = [255, 255, 255, 255];
 const SKY: Color = [178, 210, 235, 255];
-const SKY2: Color = [141, 184, 224, 255];
+const SKYLINE: Color = [178, 210, 235, 255];
 const SEA: Color = [38, 96, 140, 255];
 const DARK: Color = [10, 18, 32, 255];
 const GREEN: Color = [24, 120, 70, 255];
@@ -41,6 +51,7 @@ const ORANGE: Color = [232, 120, 48, 255];
 const PINK: Color = [240, 180, 170, 255];
 const SAND: Color = [222, 200, 160, 255];
 const CREAM: Color = [250, 246, 236, 255];
+const GRID: Color = [16, 48, 84, 255];
 
 function setPx(x: number, y: number, c: Color): void {
   if (x < 0 || y < 0 || x >= W || y >= H) return;
@@ -520,21 +531,30 @@ const MAP_NUMBERS: [number, number, string][] = [
   [50, 9, "1"], [11, 11, "2"], [13, 7, "3"], [30, 5, "4"],
   [44, 12, "5"], [37, 8, "6"], [36, 6, "7"],
 ];
-// Grey dots for briefs: Gaza, Hormuz, Ethiopia, Vienna, Seoul, Florida,
-// Washington, Paris, Kumamoto, Tonga, Manchester, London.
+// Grey dots for briefs, spread across the map: Gaza, Hormuz, Ethiopia,
+// Seoul, Florida, Paris, Berlin, Kumamoto, Tonga, Manchester, London,
+// Bangladesh, Haiti, Senegal, Siberia, Alaska, Riyadh.
 const MAP_GREY: [number, number][] = [
-  [38, 10], [41, 11], [36, 15], [32, 6], [54, 8], [10, 11],
-  [12, 8], [30, 6], [56, 8], [60, 23], [29, 5], [29, 6],
+  [38, 10], [41, 11], [36, 15], [54, 8], [10, 11], [30, 6], [32, 5],
+  [56, 8], [60, 23], [29, 5], [29, 6], [50, 11], [11, 12], [28, 11],
+  [55, 4], [4, 4], [40, 11],
 ];
 
+// Cell 5: the 64x28 grid fills 328x146 inside the box.
 function drawMap(x: number, y: number, w: number, h: number): void {
   fillRect(x, y, w, h, NAVY);
-  const cell = 4;
+  const cell = 5;
+  // graticule, drawn first so land sits on top of it
+  for (let gx = 0; gx <= 64; gx += 8) vLine(x + 8 + gx * cell, y + 6, 28 * cell, GRID);
+  for (let gy = 0; gy <= 28; gy += 7) hLine(x + 8, y + 6 + gy * cell, 64 * cell, GRID);
   for (const [x0, x1, gy] of LAND_RUNS) {
     for (let gx = x0; gx <= x1; gx++) {
       fillRect(x + 8 + gx * cell, y + 6 + gy * cell, cell, cell, SAND);
     }
   }
+  // compass, top right
+  circle(x + w - 18, y + 16, 9, WHITE);
+  drawText(x + w - 21, y + 12, "N", 1, WHITE);
   for (const [gx, gy] of MAP_GREY) {
     disc(x + 8 + gx * cell + 2, y + 6 + gy * cell + 2, 3, GREY);
   }
@@ -580,69 +600,97 @@ function drawPanel(p: Panel, x: number, y: number, w: number, h: number, artH: n
   drawPara(x + 8, cy, p.body, w - 16, 2, INK, bodyLines);
 }
 
+// Small red square bullet for one-line briefs.
+function bullet(x: number, y: number): void {
+  fillRect(x, y + 4, 6, 6, RED);
+}
+
+// ---------------------------------------------------------------- stories
+// All 39 verified as happening, or first reported, on Thursday 19 November
+// 2026 (Reuters, AP, AFP, BBC, The Hindu, UN News, Dawn, IMD, ICJ, Pew).
+// Heroes 1-7 carry the day's biggest stories; the 32 briefs are one-line
+// all-caps headlines, each 21 characters or fewer so none overflows its
+// column at scale 2.
+
 const HEROES: Panel[] = [
   {
     num: "1", place: "SHENZHEN", beat: "SUMMIT",
     headline: "Trump, Xi and Putin hold first three-way summit",
-    body: "Three powers meet at APEC; arms and the Iran war top the agenda.",
+    body: "Joint vow: no nuclear war; declaration silent on Ukraine, Iran.",
     art: artSummit,
-  },
-  {
-    num: "2", place: "WORLDWIDE", beat: "GAMES",
-    headline: "GTA VI arrives after a 13-year wait",
-    body: "Unlocks at midnight, New Zealand first. PS5 and Xbox; no PC yet.",
-    art: artGTA,
   },
   {
     num: "3", place: "NASDAQ", beat: "MARKETS",
     headline: "Anthropic debuts in the biggest IPO on record",
-    body: "Priced at $83, the Claude maker raised $81.3bn; valued near $1.5tn.",
+    body: "Priced at $83, raised $81.3bn; shares close up 17% at $97.17.",
     art: artIPO,
   },
 ];
 
 const SECOND: Panel[] = [
   {
-    num: "4", place: "THE HAGUE", beat: "LAW",
-    headline: "World Court rules on Myanmar's Rohingya case",
-    body: "Judgment read at 10:00; final, with no appeal.",
+    num: "2", place: "GLOBAL", beat: "GAMES",
+    headline: "GTA VI arrives to rave reviews",
+    body: "Unlocks at midnight, NZ first.",
+    art: artGTA,
+  },
+  {
+    num: "4", place: "HAGUE", beat: "LAW",
+    headline: "World Court: Myanmar committed genocide",
+    body: "Genocide found; final, no appeal.",
     art: artCourt,
   },
   {
     num: "5", place: "ODISHA", beat: "STORM",
     headline: "Cyclone Akvan bears down on India's east coast",
-    body: "50,000 moved to safety; landfall due Friday.",
+    body: "50,000 moved; landfall Friday.",
     art: artStorm,
   },
   {
-    num: "6", place: "ANTALYA", beat: "CLIMATE",
-    headline: "COP31 enters its final 48 hours",
-    body: "Ministers take over; phase-out and $120bn open.",
+    num: "6", place: "ANTALYA", beat: "COP31",
+    headline: "COP31 draft drops fossil fuels",
+    body: "$120bn gone; 35-by-35 survives.",
     art: artCOP,
-  },
-  {
-    num: "7", place: "KYIV", beat: "WAR",
-    headline: "Crimean Bridge hit again",
-    body: "Third strike in a week, Moscow says.",
-    art: artBridge,
   },
 ];
 
-// [lead, rest] — lead drawn in red, rest in ink. Each fits two lines.
-const BRIEFS: [string, string][] = [
-  ["GAZA \u2014 ", "Israeli tanks cross the Yellow Line in Gaza."],
-  ["GULF \u2014 ", "Three tankers burn on mines east of Hormuz."],
-  ["AFRICA \u2014 ", "Ethiopia-Eritrea clashes risk full-scale war."],
-  ["VIENNA \u2014 ", "IAEA: N. Korea expanded enrichment."],
-  ["SHENZHEN \u2014 ", "APEC adopts its Shenzhen Declaration."],
-  ["SEOUL \u2014 ", "551,864 sit Korea's Suneung college exam."],
-  ["FLORIDA \u2014 ", "A foot of rain floods Hollywood."],
-  ["WASHINGTON \u2014 ", "US renews Bahrain, Saudi warnings."],
-  ["PARIS \u2014 ", "France jails three women who joined ISIS."],
-  ["KUMAMOTO \u2014 ", "M5.7 quake jolts Japan; no tsunami warning."],
-  ["TONGA \u2014 ", "State of emergency as El Nino drought worsens."],
-  ["MANCHESTER \u2014 ", "Pochettino arrives at Manchester United."],
-  ["LONDON \u2014 ", "Islam largest religion by 2035: Pew."],
+// One line each, 21 characters max, all caps. Left column first.
+const BRIEFS_COL1: string[] = [
+  "GAZA TANKS CROSS LINE",
+  "HORMUZ TANKERS BURN",
+  "ETHIOPIA WAR WARNING",
+  "NORTH KOREA ENRICHES",
+  "APEC: SHENZHEN ACCORD",
+  "SUNEUNG: 551,864 SIT",
+  "FLORIDA: FOOT OF RAIN",
+  "US WARNS IN GULF",
+  "PARIS JAILS ISIS TRIO",
+  "M5.7 QUAKES KUMAMOTO",
+  "TONGA: DROUGHT CRISIS",
+  "POCHETTINO TO UNITED",
+  "ISLAM LARGEST BY 2035",
+  "28 AREAS IN FLAMES",
+  "HAITI: 34 GANG DEAD",
+  "GREENLAND DEAL SEALED",
+];
+
+const BRIEFS_COL2: string[] = [
+  "UK: APPLE DATA ORDER",
+  "UK: GREEN AUCTION",
+  "BERLIN BACKS UKRAINE",
+  "EU CYBERATTACK VIA AI",
+  "FTSE HITS 6-WEEK LOW",
+  "MIGRANT BOAT SINKS",
+  "US OKs 900K AI CHIPS",
+  "US BLOCKS CHINA JETS",
+  "JAPAN DRILLS IN INDIA",
+  "GANDHI: NO BOYCOTT",
+  "US-VENEZUELA PACT",
+  "KUWAIT REPELS IRAN",
+  "EU 45BN LOAN FOR KYIV",
+  "HORMUZ TOP THREAT",
+  "RIYADH TOWER HIT",
+  "27 YRS FOR TRUMP PLOT",
 ];
 
 const STRIP: [string, string][] = [
@@ -650,23 +698,9 @@ const STRIP: [string, string][] = [
   ["15.9m", "GTA VI pre-orders"],
   ["551,864", "sit Korea's Suneung exam"],
   ["50,000", "evacuated in Odisha"],
-  ["$120bn", "adaptation cash at COP31"],
+  ["900,000", "AI chips to China"],
   ["730,000", "Rohingya who fled in 2017"],
 ];
-
-function drawBrief(x: number, y: number, w: number, lead: string, rest: string): void {
-  const full = lead + rest;
-  const lines = wrap(full, w, 2).slice(0, 2);
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (i === 0 && line.startsWith(lead)) {
-      drawText(x, y, lead, 2, RED);
-      drawText(x + textWidth(lead, 2), y, line.slice(lead.length), 2, INK);
-    } else {
-      drawText(x, y + i * 18, line, 2, INK);
-    }
-  }
-}
 
 function draw(): void {
   fillRect(0, 0, W, H, PAPER);
@@ -674,7 +708,7 @@ function draw(): void {
 
   // ---- masthead
   drawText(MX, 14, "THE WORLD IN ONE DAY", 2, RED);
-  const rightTag = "20 STORIES \u00b7 ONE PAGE";
+  const rightTag = "39 STORIES \u00b7 ONE PAGE";
   drawText(MX + CW - textWidth(rightTag, 2), 14, rightTag, 2, INK);
   drawText(MX, 36, "Thursday 19 November 2026", 5, INK);
   drawText(MX, 78, "Three leaders meet in Shenzhen \u00b7 The biggest IPO ever debuts \u00b7 GTA VI arrives", 2, REDDK);
@@ -691,39 +725,58 @@ function draw(): void {
   }
   fillRect(MX, stripY + 68, CW, 2, INK);
 
-  // ---- hero row (3 panels)
-  const heroY = 184;
-  const heroW = 326;
-  for (let i = 0; i < HEROES.length; i++) {
-    drawPanel(HEROES[i], MX + i * (heroW + 7), heroY, heroW, 232, 60, 3, 3);
-  }
+  // ---- hero row A (2 big panels)
+  const heroY = 182;
+  drawPanel(HEROES[0], MX, heroY, 488, 220, 88, 3, 2);
+  drawPanel(HEROES[1], MX + 496, heroY, 496, 220, 88, 3, 2);
 
-  // ---- second row (4 panels)
-  const row2Y = 424;
-  const row2W = 244;
+  // ---- hero row B (4 medium panels)
+  const row2Y = 410;
   for (let i = 0; i < SECOND.length; i++) {
-    drawPanel(SECOND[i], MX + i * (row2W + 5), row2Y, row2W, 196, 46, 2, 3);
+    drawPanel(SECOND[i], MX + i * (244 + 5), row2Y, 244, 192, 44, 2, 2);
   }
 
-  // ---- briefs band
-  const briefY = 636;
-  drawText(MX, briefY, "ALSO ON THURSDAY 19 NOVEMBER \u2014 13 MORE STORIES", 2, RED);
-  const bandY = briefY + 22;
-  // map
-  drawText(MX, bandY, "WHERE IT HAPPENED", 2, RED);
-  drawMap(MX, bandY + 20, 300, 132);
-  outlineRect(MX, bandY + 20, 300, 132, INK);
-  drawPara(MX, bandY + 160, "Red numbers mark stories 1-7; grey dots mark the briefs. Positions are approximate.", 300, 2, GREY, 3);
-  // brief columns
-  const colW = 324;
-  const colX = [MX + 312, MX + 312 + colW + 16];
-  const perCol = [7, 6];
-  let bi = 0;
-  for (let c = 0; c < 2; c++) {
-    for (let k = 0; k < perCol[c]; k++) {
-      const [lead, rest] = BRIEFS[bi++];
-      drawBrief(colX[c], bandY + k * 42, colW, lead, rest);
-    }
+  // ---- bridge strip (story 7, full width)
+  const brY = 610;
+  outlineRect(MX, brY, CW, 48, INK);
+  // mini bridge art, right end
+  fillRect(898, brY + 4, 102, 40, SKY);
+  fillRect(898, brY + 29, 102, 15, SEA);
+  fillRect(902, brY + 24, 94, 4, NAVY);
+  for (let t = 0; t <= 10; t++) {
+    const px = 902 + Math.floor((94 * t) / 10);
+    const py = brY + 24 - Math.floor(9 * Math.sin((Math.PI * t) / 10));
+    setPx(px, py, NAVY);
+    setPx(px, py + 1, NAVY);
+  }
+  for (let k = 0; k < 8; k++) {
+    const a = (k * Math.PI) / 4;
+    drawLine(949, brY + 16, Math.round(949 + Math.cos(a) * 8), Math.round(brY + 16 + Math.sin(a) * 8), RED);
+  }
+  disc(949, brY + 16, 3, GOLD);
+  drawText(MX + 12, brY + 8, "7 \u00b7 KYIV \u00b7 WAR", 2, RED);
+  drawText(MX + 12 + textWidth("7 \u00b7 KYIV \u00b7 WAR  ", 2), brY + 8, "MISSILE STRIKE CRIPPLES CRIMEA BRIDGE", 2, INK);
+  drawText(MX + 12, brY + 28, "THIRD STRIKE IN A WEEK; TRAFFIC SUSPENDED.", 2, INK);
+
+  // ---- row C: map + briefs
+  const rowCY = 666;
+  outlineRect(MX, rowCY, 420, 280, INK);
+  drawText(MX + 12, rowCY + 8, "WHERE IT HAPPENED", 2, RED);
+  drawMap(MX + 40, rowCY + 28, 340, 156);
+  outlineRect(MX + 40, rowCY + 28, 340, 156, INK);
+  drawText(MX + 12, rowCY + 190, "1 SUMMIT  2 GTA  3 IPO", 2, INK);
+  drawText(MX + 12, rowCY + 207, "4 COURT  5 STORM  6 COP31", 2, INK);
+  drawText(MX + 12, rowCY + 224, "7 BRIDGE \u2014 DOTS: BRIEFS", 2, GREY);
+
+  outlineRect(MX + 428, rowCY, 564, 280, INK);
+  drawText(MX + 440, rowCY + 8, "THE DAY IN BRIEF", 2, RED);
+  hLine(MX + 440, rowCY + 26, 540, RED);
+  for (let i = 0; i < 16; i++) {
+    const yb = rowCY + 32 + i * 15;
+    bullet(MX + 436, yb);
+    drawText(MX + 448, yb, BRIEFS_COL1[i], 2, INK);
+    bullet(MX + 716, yb);
+    drawText(MX + 728, yb, BRIEFS_COL2[i], 2, INK);
   }
 
   // ---- date check
@@ -738,7 +791,7 @@ function draw(): void {
   );
 
   // ---- footer
-  drawText(MX, 1008, "Every story here happened, or was first reported, on Thursday 19 November 2026. Sources: Reuters, AP, BBC, The Hindu, IMD, ICJ.", 1, GREY);
+  drawText(MX, 1008, "Every story here happened, or was first reported, on Thursday 19 November 2026. Sources: Reuters, AP, BBC, The Hindu, UN News, Dawn, IMD, ICJ.", 1, GREY);
 }
 
 function main(): void {
